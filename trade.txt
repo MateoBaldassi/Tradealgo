@@ -1,0 +1,190 @@
+#!/usr/bin/python3
+
+import string
+import sys
+import re
+
+class Candle:
+    high: float = 0
+    open: float = 0
+    volume: float = 0
+    close: float = 0
+    low: float = 0
+    price: float = 0
+    convertionLine: float = 0
+    baseLine: float = 0
+    leadingSpanA: float = 0
+    leadingSpanB: float = 0
+
+    def __init__(self, high: float, open: float, volume: float, close: float, low: float):
+        self.high = high
+        self.open = open
+        self.volume = volume
+        self.close = close
+        self.low = low
+
+class Bot:
+    name: string = ""
+    money: int = 0
+    btc: float = 0.0
+    pourcent: float = 0.0
+    ListCandle: list[Candle] = []
+    isWait: bool = False
+    temp: int = 0
+
+    def __init__(self) -> None:
+        pass
+
+def calcMoy(bot: Bot, precision: int) -> int:
+    lenCandle = len(bot.ListCandle)
+    highMoy = 0
+    lowMoy = 0
+    if (lenCandle >= (precision)):
+        for i in range(1, precision + 1):
+            highMoy += float(bot.ListCandle[lenCandle - i].high)
+            lowMoy += float(bot.ListCandle[lenCandle - i].low)
+
+        return (((highMoy / precision) + (lowMoy / precision)) / 2)
+    return 0
+
+def stratConversionBase(bot: Bot, candle: Candle, last: Candle, lagging: Candle) -> bool:
+    amount = bot.money * 0.10
+    btc = (1 * amount) / candle.price
+
+    # print("amount %f money %f" % (amount, bot.money), file = sys.stderr)
+
+    # print("last CLine %f | last Bline %f | current Cline %f | current Bline %f " % (last.convertionLine, last.baseLine, candle.convertionLine, candle.baseLine), file = sys.stderr)
+
+    if (last.convertionLine < last.baseLine and candle.convertionLine > candle.baseLine and (candle.price > candle.leadingSpanA and candle.price > candle.leadingSpanB) and (lagging.price > candle.leadingSpanA and lagging.price > candle.leadingSpanB) and bot.money >= amount):
+        print("buy USDT_BTC %f" % (btc), flush=True)
+        bot.btc += btc
+        bot.money -= amount
+        print("C/B haussier %f price: %d btc %f" % (candle.price, bot.money, bot.btc), file = sys.stderr)
+        return True
+    if (last.convertionLine > last.baseLine and candle.convertionLine < candle.baseLine and (candle.price < candle.leadingSpanA and candle.price < candle.leadingSpanB) and (lagging.price < candle.leadingSpanA and lagging.price < candle.leadingSpanB) and bot.btc > 0):
+        print("sell USDT_BTC %f" % (bot.btc), flush=True)
+        bot.money += (bot.btc * candle.price) / 1
+        bot.btc = 0
+        print("C/B baissier %f price: %d btc %f" % (candle.price, bot.money, bot.btc), file = sys.stderr)
+        return True
+    return False
+
+def stratCoursBaseline(bot: Bot, candle: Candle, last: Candle, lagging: Candle) -> bool:
+    amount = bot.money * 0.10
+    btc = (1 * amount) / candle.price
+
+    if (last.price < last.baseLine and candle.price > candle.baseLine and (lagging.leadingSpanA < candle.price and lagging.leadingSpanB < candle.price) and bot.money > amount):
+        print("buy USDT_BTC %f" % (btc), flush=True)
+        bot.btc += btc
+        bot.money -= amount
+        print("P/B haussier %f price: %d btc %f" % (candle.price, bot.money, bot.btc), file = sys.stderr)
+        return True
+    if (last.price > last.baseLine and candle.price < candle.baseLine and (lagging.leadingSpanA > candle.price and lagging.leadingSpanB > candle.price) and bot.btc > 0):
+        # print("P/B baissier %f price: %d btc %f" % (candle.price, bot.money, bot.btc), file = sys.stderr)
+        print("sell USDT_BTC %f" % (bot.btc), file= sys.stderr)
+        # print("sell USDT_BTC %f" % (bot.btc), flush=True)
+        print(f'sell USDT_BTC {bot.btc}')
+        bot.money += (bot.btc * candle.price) / 1
+        bot.btc = 0
+        return True
+    return False
+
+def stratCloudBreakout(bot: Bot, candle: Candle, last: Candle, lagging: Candle, lagginplus: Candle) -> bool:
+    amount = bot.money * 0.10
+    btc = (1 * amount) / candle.price
+
+    if (last.baseLine < candle.baseLine and (last.price < lagging.leadingSpanB and last.price < lagging.leadingSpanB) and (candle.price > lagging.leadingSpanB and candle.price > lagging.leadingSpanA) and candle.leadingSpanA > candle.leadingSpanB and (lagging.price > lagginplus.leadingSpanA and lagging.price > lagginplus.leadingSpanB)):
+        print("buy USDT_BTC %f" % (btc), flush=True)
+        bot.btc += btc
+        bot.money -= amount
+        print("CB haussier %f price: %d btc %f" % (candle.price, bot.money, bot.btc), file = sys.stderr)
+        return True
+    if (last.baseLine > candle.baseLine and (last.price > lagging.leadingSpanB and last.price > lagging.leadingSpanB) and (candle.price < lagging.leadingSpanB and candle.price < lagging.leadingSpanA) and candle.leadingSpanA < candle.leadingSpanB and (lagging.price < lagginplus.leadingSpanA and lagging.price < lagginplus.leadingSpanB)):
+        print("sell BTC_USDT %f" % (bot.btc), flush=True)
+        bot.money += (bot.btc * candle.price) / 1
+        bot.btc = 0
+        print("CB baissier %f price: %d btc %f" % (candle.price, bot.money, bot.btc), file = sys.stderr)
+        return True
+    return False
+
+def doSomething(bot: Bot) -> None:
+    lenCandle = len(bot.ListCandle)
+    candleLast2: Candle = bot.ListCandle[lenCandle - 2]
+    candleLast1: Candle = bot.ListCandle[lenCandle - 1]
+    laggingSpan: Candle = None
+    if (lenCandle >= 26):
+        laggingSpan: Candle = bot.ListCandle[lenCandle - 27]
+
+    isBuy: bool = False
+
+    isBuy = stratConversionBase(bot, candleLast1, candleLast2, laggingSpan)
+    isBuy = stratCoursBaseline(bot, candleLast1, candleLast2, laggingSpan)
+    if (lenCandle >= 52):
+        isBuy = stratCloudBreakout(bot, candleLast1, bot.ListCandle[lenCandle - 5], laggingSpan, bot.ListCandle[lenCandle - 52])
+    if (not isBuy):
+        print("no_moves", flush=True)
+
+
+def calcAllIndicators(bot: Bot) -> None:
+    lenCandle = len(bot.ListCandle)
+    bot.ListCandle[lenCandle - 1].convertionLine = calcMoy(bot, 9) # force de la tendance
+    bot.ListCandle[lenCandle - 1].baseLine = calcMoy(bot, 26) # support/résitance | signal d'achat ou de vente
+    bot.ListCandle[lenCandle - 1].leadingSpanA = (bot.ListCandle[lenCandle - 1].convertionLine + bot.ListCandle[lenCandle - 1].baseLine) / 2
+    bot.ListCandle[lenCandle - 1].leadingSpanB = calcMoy(bot, 52)
+    bot.ListCandle[lenCandle - 1].laggingSpan = 0 # mémoire du marché
+    if (lenCandle <= 3):
+        print("no_moves", flush=True)
+    else:
+        doSomething(bot)
+
+def updateCandle(str: string, bot: Bot) -> None :
+    pattern = "update game next_candles (\w+),([0-9.]+),([0-9.]+),([0-9.]+),([0-9.]+),([0-9.]+),([0-9.]+)"
+    matchs: list = re.findall(pattern, str)
+    lenCandle = len(bot.ListCandle)
+    if (len(matchs) <= 0):
+        return
+    listMatch = matchs[0]
+    bot.ListCandle.append(Candle(float(listMatch[2]), float(listMatch[4]), float(listMatch[6]), float(listMatch[5]), float(listMatch[3])))
+    if (bot.ListCandle[lenCandle].open > bot.ListCandle[lenCandle].close):
+        bot.ListCandle[lenCandle].price = bot.ListCandle[lenCandle].close
+    else:
+        bot.ListCandle[lenCandle].price = bot.ListCandle[lenCandle].open
+    return
+
+def setSetting(str: string, bot: Bot):
+    pattern = "settings (\w+) (\w.+)"
+    listMatch: list = re.findall(pattern, str)[0]
+    if (listMatch[0] == "transaction_fee_percent"):
+        bot.pourcent = float(listMatch[1])
+    if (listMatch[0] == "initial_stack"):
+        bot.money = int(listMatch[1])
+    if (listMatch[0] == "player_names"):
+        bot.name = listMatch[1]
+    return
+
+def getStack(bot: Bot, str: string):
+    pattern = "update game stacks BTC:([0-9.]+),USDT:([0-9.]+)"
+    matchs: list = re.findall(pattern, str)
+    # print(matchs, file = sys.stderr)
+    if (len(matchs) <= 0):
+        return
+    listMatch = matchs[0]
+    bot.btc = float(listMatch[0]);
+    bot.money = float(listMatch[1]);
+
+if __name__ == "__main__":
+    bot = Bot()
+    while 1:
+        temp = input("")
+        if (len(temp) == 0):
+            break
+        if (temp.find("settings") != -1):
+            setSetting(temp, bot)
+        if (temp.find("update") != -1):
+            if (temp.find("next_candles") != 1):
+                updateCandle(temp, bot)
+                calcAllIndicators(bot)
+            if (temp.find("stacks") != 1):
+                getStack(bot, temp)
+            bot.temp += 1
+    print(f'sell USDT_BTC {bot.btc}', flush=True)
